@@ -1,0 +1,30 @@
+<Project>
+
+  <!-- Chains to a consumer's props rather than shadowing it, as PlayerOne.SDK does. -->
+  <PropertyGroup>
+    <ParentBuildProps>$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildThisFileDirectory)../'))</ParentBuildProps>
+  </PropertyGroup>
+  <Import Project="$(ParentBuildProps)" Condition="Exists('$(ParentBuildProps)')" />
+
+  <PropertyGroup>
+    <!-- THE version for this repo, and the only place it is written. It TRACKS THE VENDOR SDK, as
+         PlayerOne.SDK does: 1.13 is SVBCameraSDK v1.13.4. -->
+    <VersionMajorMinor>1.13</VersionMajorMinor>
+    <VersionPrefix Condition="'$(VersionPrefix)' == ''">$(VersionMajorMinor).0</VersionPrefix>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <CreateHardLinksForCopyLocalIfPossible>true</CreateHardLinksForCopyLocalIfPossible>
+    <CreateHardLinksForCopyFilesToOutputDirectoryIfPossible>true</CreateHardLinksForCopyFilesToOutputDirectoryIfPossible>
+    <CreateHardLinksForCopyAdditionalFilesIfPossible>true</CreateHardLinksForCopyAdditionalFilesIfPossible>
+    <CreateHardLinksForAdditionalFilesIfPossible>true</CreateHardLinksForAdditionalFilesIfPossible>
+    <CreateHardLinksForPublishFilesIfPossible>true</CreateHardLinksForPublishFilesIfPossible>
+  </PropertyGroup>
+  <PropertyGroup>
+    <!-- Ship the /// comments in the package so consumers get IntelliSense; CS1591 and CS1573 are
+         silenced, broken crefs and paramrefs still warn. -->
+    <GenerateDocumentationFile Condition="!$(MSBuildProjectName.EndsWith('.Tests'))">true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591;CS1573</NoWarn>
+  </PropertyGroup>
+
+</Project>

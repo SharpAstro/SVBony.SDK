@@ -1,0 +1,14 @@
+SVBONY Camera SDK v1.13.4 (2025-02-05), the Windows and Linux archives, as the owner downloaded
+them from SVBONY's support pages on 2026-10-21 (Downloads/SVB/windows-SVBCameraSDK-v1.13.4,
+linux-SVBCameraSDK-v1.13.4). Windows driver installer from the same drop: SVBONY-Driver-DS-V1.13.4-20250205.exe
+sha256 9d811c2dee16e09dc586ea8df0fbf98653045f2f5c363479641aa849e8ad9e51.
+
+lib/win-x64/SVBCameraSDK.dll         <- windows lib/x64           f447654e22f5feb4d707591610d1f29f183607e15a64787c4eb6b74e4f19e546
+lib/linux-x64/libSVBCameraSDK.so     <- linux lib/x64             371bcf7f515b4d273c461a41fd494e079637d74ee5f7a26238b022979d4613e4
+lib/linux-arm64/libSVBCameraSDK.so   <- linux lib/armv8           d8c6c1848d4cc95de6594449f43ee339693dfe52a8341bc857a3fe183d16e0e3
+lib/linux-arm/libSVBCameraSDK.so     <- linux lib/armv7           ebe3cfb943aa06de3523be347f84cd2c7b00c6e670f1e82401d051d5cc2ff8ec
+lib/udev/90-ckusb.rules              <- linux 90-ckusb.rules
+
+Not taken: win-x86, linux x86 and armv6 (unused, as ToupTek.SDK dropped them), the static .a
+archives, and the vendor's libusb-1.0.so copies (the shared library links libusb statically; its
+only NEEDED entries are libc, libm, libgcc_s and libstdc++). No macOS build was in the drop.

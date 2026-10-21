@@ -1,0 +1,76 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+	<TargetFramework>net10.0</TargetFramework>
+	<Nullable>enable</Nullable>
+	<RootNamespace>SVBony.SDK</RootNamespace>
+	<AssemblyName>SVBony.SDK</AssemblyName>
+	<AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+	<IsAotCompatible>true</IsAotCompatible>
+	<DebugType>embedded</DebugType>
+	<GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+	<PackageId>SVBony.SDK</PackageId>
+	<PackageReadmeFile>README.md</PackageReadmeFile>
+	<PackageLicenseFile>LICENSE</PackageLicenseFile>
+	<PackageTags>Astronomy,SVBONY,SVB,Camera</PackageTags>
+	<RepositoryUrl>https://github.com/SharpAstro/SVBony.SDK</RepositoryUrl>
+	<PackageProjectUrl>https://github.com/SharpAstro/SVBony.SDK</PackageProjectUrl>
+	<PublishRepositoryUrl>true</PublishRepositoryUrl>
+	<EmbedUntrackedSources>true</EmbedUntrackedSources>
+	<Description>Implements accessing SVBONY cameras (the SVBCameraSDK line: SV305, SV405CC, SV505C, SV605CC, SV705C, SV905C, SC432M) using .NET</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+	<!-- reference/ holds the vendor's samples and change log, kept for reading and never compiled. -->
+	<Compile Remove="reference/**" />
+	<None Remove="reference/**" />
+	<!-- tools/ holds consoles with projects of their own (the hardware probe), and their obj/ folders
+	     carry generated sources that would otherwise compile into this assembly. -->
+	<Compile Remove="tools/**" />
+	<None Remove="tools/**" />
+	<EmbeddedResource Remove="tools/**" />
+	<None Include="README.md" PackagePath="" Pack="true" />
+	<None Include="LICENSE" PackagePath="" Pack="true" />
+  </ItemGroup>
+
+  <!--
+    One item per RID shipped (lib/SOURCE.txt says which vendor file each is). The vendor's drop has no
+    macOS build, so a Mac consumer sees the library absent, exactly as on a machine with no camera SDK.
+  -->
+  <ItemGroup>
+	<None Include="lib/win-x64/SVBCameraSDK.dll" PackagePath="runtimes/win-x64/native" Pack="true" />
+	<None Include="lib/linux-x64/libSVBCameraSDK.so" PackagePath="runtimes/linux-x64/native" Pack="true" />
+	<None Include="lib/linux-arm64/libSVBCameraSDK.so" PackagePath="runtimes/linux-arm64/native" Pack="true" />
+	<None Include="lib/linux-arm/libSVBCameraSDK.so" PackagePath="runtimes/linux-arm/native" Pack="true" />
+  </ItemGroup>
+
+  <!--
+    The PackagePath entries above serve a NuGet package and ONLY it: a consumer taking this project by
+    ProjectReference, which every SharpAstro consumer does on a dev box because UseLocalSiblings
+    self-enables, gets no runtimes/ resolution, and a missing DllImport target looks exactly like no
+    camera being plugged in (the gap ZWOptical.SDK shipped with for a while). So the native for the
+    build's own RID is also copied beside the consumer's binary, where the runtime probes.
+  -->
+  <PropertyGroup>
+	<_SvbRid Condition="'$(RuntimeIdentifier)' != ''">$(RuntimeIdentifier)</_SvbRid>
+	<_SvbRid Condition="'$(_SvbRid)' == ''">$(NETCoreSdkPortableRuntimeIdentifier)</_SvbRid>
+	<_SvbRid Condition="'$(_SvbRid)' == ''">unknown</_SvbRid>
+	<_SvbFile Condition="$(_SvbRid.StartsWith('win-'))">SVBCameraSDK.dll</_SvbFile>
+	<_SvbFile Condition="$(_SvbRid.StartsWith('linux-'))">libSVBCameraSDK.so</_SvbFile>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(_SvbFile)' != '' And Exists('lib/$(_SvbRid)/$(_SvbFile)')">
+	<None Update="lib/$(_SvbRid)/$(_SvbFile)" Link="$(_SvbFile)" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <!-- TianWen.DAL from the sibling checkout when there is one, exactly as PlayerOne.SDK does and for
+       the same reason: an unconditional PackageReference puts a second TianWen.DAL beside the
+       sibling's in any consumer building both from source, and the compiler refuses them (CS1704). -->
+  <ItemGroup Condition="Exists('$(MSBuildThisFileDirectory)..\TianWen.DAL\TianWen.DAL.csproj')">
+	<ProjectReference Include="..\TianWen.DAL\TianWen.DAL.csproj" />
+  </ItemGroup>
+  <ItemGroup Condition="!Exists('$(MSBuildThisFileDirectory)..\TianWen.DAL\TianWen.DAL.csproj')">
+	<PackageReference Include="TianWen.DAL" Version="3.4.*" />
+  </ItemGroup>
+
+</Project>
