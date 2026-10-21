@@ -236,8 +236,21 @@ public readonly struct SVBCameraDevice : ICMOSNativeInterface
             return CMOSErrorCode.InvalidControlType;
         }
 
-        return SvbControls.ToDal(SVBSetControlValue(ID, control, new CLong(SvbControls.ToSdk(controlType, value)), isAuto ? 1 : 0));
+        var sdkValue = SvbControls.ToSdk(controlType, value);
+        var error = SVBSetControlValue(ID, control, new CLong(sdkValue), isAuto ? 1 : 0);
+        if (error is SVB_ERROR_CODE.SVB_SUCCESS && controlType is CMOSControlType.TargetTemperature)
+        {
+            session.NoteAskedTarget(sdkValue);
+        }
+
+        return SvbControls.ToDal(error);
     }
+
+    /// <summary>
+    /// How far the cooler governor holds the camera's target above the one last set, in degrees: 0 while the cooler
+    /// stays below 90 % (see <c>CoolerGovernor</c>).
+    /// </summary>
+    public double CoolerTargetRaised => (Session?.CoolerTargetRaisedDeci ?? 0) / 10d;
 
     // ---- Guiding ----------------------------------------------------------------------------------------
 
@@ -358,6 +371,38 @@ public readonly struct SVBCameraDevice : ICMOSNativeInterface
     public void GetRoiSteps(out int widthStep, out int heightStep, out int originStepX, out int originStepY)
     {
         (widthStep, heightStep, originStepX, originStepY) = (8, 2, 1, 1);
+    }
+
+    // ---- Video ------------------------------------------------------------------------------------------
+
+    /// <summary>
+    /// True: a stream is the same stream an exposure is taken from, free-running (<c>SVB_MODE_NORMAL</c>) instead of
+    /// soft-triggered (see <c>SvbSession.StartVideo</c>).
+    /// </summary>
+    public bool CanVideoCapture => true;
+
+    /// <summary>
+    /// False: the SDK refuses a window while the stream runs, so a pan is a stop, a new start and a restart.
+    /// </summary>
+    public bool CanPanRoiWhileStreaming => false;
+
+    public CMOSErrorCode StartVideoCapture() => Session is { } session ? SvbControls.ToDal(session.StartVideo()) : CMOSErrorCode.CameraClosed;
+
+    public CMOSErrorCode StopVideoCapture() => Session is { } session ? SvbControls.ToDal(session.StopVideo()) : CMOSErrorCode.CameraClosed;
+
+    /// <summary><c>SVBGetVideoData</c> with the caller's wait, on the caller's thread, into the caller's buffer.</summary>
+    public CMOSErrorCode GetVideoData(IntPtr buffer, int bufferSize, int waitMs)
+        => Session is { } session ? SvbControls.ToDal(session.ReadVideoFrame(buffer, bufferSize, waitMs)) : CMOSErrorCode.CameraClosed;
+
+    public bool TryGetDroppedFrames(out int dropped)
+    {
+        if (Session is { } session)
+        {
+            return session.TryGetDroppedFrames(out dropped);
+        }
+
+        dropped = 0;
+        return false;
     }
 
     // ---- The frame --------------------------------------------------------------------------------------

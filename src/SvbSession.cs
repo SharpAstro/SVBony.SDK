@@ -22,7 +22,10 @@ namespace SVBony.SDK;
 /// <c>SVBGetVideoData</c>), so a single exposure is the stream in SOFT TRIGGER mode: the camera produces nothing
 /// until <c>SVBSendSoftTrigger</c> asks for one frame, which is what its own <c>SVBSoftTriggerDemo</c> does and
 /// what the DAL's start / poll / read shape needs. The stream is started at open and runs, idle, between
-/// exposures; it is stopped only to change the window, which the SDK refuses while it runs.</para>
+/// exposures; it is stopped to change the window, which the SDK refuses while it runs, and started again by the next
+/// exposure.</para>
+/// <para><b>A video is the same stream FREE-RUNNING</b> (<c>SVB_MODE_NORMAL</c>, <see cref="StartVideo"/>), read on
+/// the caller's thread; stopping it puts the camera back in soft trigger mode.</para>
 /// <para><b>The frame is read on a thread of its own.</b> <c>SVBGetVideoData</c> blocks for up to its wait, and
 /// the header warns that its buffer is small and a frame not taken promptly is discarded, so a poll of the DAL's
 /// <see cref="ICMOSNativeInterface.GetExposureStatus"/> cannot be what takes it. Each exposure starts one reader,
@@ -49,6 +52,9 @@ internal sealed unsafe class SvbSession
     private readonly byte* _frame;
     private readonly int _frameCapacity;
     private int _state = StateIdle;
+    private int _video;
+    private bool _triggerStreamRunning;
+    private SVB_CAMERA_MODE _mode = SVB_CAMERA_MODE.SVB_MODE_END;
     private int _generation;
     private int _frameBytes;
     private Thread? _reader;
@@ -95,6 +101,11 @@ internal sealed unsafe class SvbSession
         // bin is smaller.
         _frameCapacity = checked(MaxWidth * MaxHeight * 3);
         _frame = (byte*)NativeMemory.Alloc((nuint)_frameCapacity);
+
+        if (HasCooler && Controls.TryGetValue(SVB_CONTROL_TYPE.SVB_TARGET_TEMPERATURE, out var target))
+        {
+            _coolerGovernor = new CoolerGovernor(id, target.Max);
+        }
     }
 
     internal int Id { get; }
@@ -230,8 +241,7 @@ internal sealed unsafe class SvbSession
             _ = SVBSetControlValue(Id, SVB_CONTROL_TYPE.SVB_EXPOSURE, exposure, 0);
         }
 
-        return SVBSetCameraMode(Id, SVB_CAMERA_MODE.SVB_MODE_TRIG_SOFT) is SVB_ERROR_CODE.SVB_SUCCESS
-            && StartStream() is SVB_ERROR_CODE.SVB_SUCCESS;
+        return StartStream() is SVB_ERROR_CODE.SVB_SUCCESS;
     }
 
     /// <summary>The controls the open could not put at their raw-neutral value: empty when every write took.</summary>
@@ -259,10 +269,17 @@ internal sealed unsafe class SvbSession
     /// </remarks>
     private const int UnaskedFrameWaitMs = 500;
 
-    /// <summary>Starts the stream and drops the frame it sends unasked (<see cref="UnaskedFrameWaitMs"/>).</summary>
+    /// <summary>Starts the soft trigger stream and drops the frame it sends unasked (<see cref="UnaskedFrameWaitMs"/>).</summary>
     private SVB_ERROR_CODE StartStream()
     {
-        var result = SVBStartVideoCapture(Id);
+        var result = SetMode(SVB_CAMERA_MODE.SVB_MODE_TRIG_SOFT);
+        if (result is not SVB_ERROR_CODE.SVB_SUCCESS)
+        {
+            return result;
+        }
+
+        result = SVBStartVideoCapture(Id);
+        _triggerStreamRunning = result is SVB_ERROR_CODE.SVB_SUCCESS;
         if (result is SVB_ERROR_CODE.SVB_SUCCESS)
         {
             var bytes = FrameBytes;
@@ -272,6 +289,22 @@ internal sealed unsafe class SvbSession
             }
         }
 
+        return result;
+    }
+
+    /// <summary>
+    /// Puts the camera in <paramref name="mode"/> unless it is there already: a mode is written only when it changes, so a
+    /// pan, which stops a video and starts it again, never pays for a soft trigger mode in between.
+    /// </summary>
+    private SVB_ERROR_CODE SetMode(SVB_CAMERA_MODE mode)
+    {
+        if (_mode == mode)
+        {
+            return SVB_ERROR_CODE.SVB_SUCCESS;
+        }
+
+        var result = SVBSetCameraMode(Id, mode);
+        _mode = result is SVB_ERROR_CODE.SVB_SUCCESS ? mode : SVB_CAMERA_MODE.SVB_MODE_END;
         return result;
     }
 
@@ -314,10 +347,12 @@ internal sealed unsafe class SvbSession
         return SupportedFormats.Contains(wide) ? wide : narrow;
     }
 
-    /// <summary>Stops the stream and any reader before closing, then frees the frame the reader wrote into.</summary>
+    /// <summary>Stops the cooler governor, the stream and any reader before closing, then frees the frame the reader wrote into.</summary>
     private void Shutdown()
     {
+        _coolerGovernor?.Stop();
         _ = Interlocked.Increment(ref _generation);
+        _ = Interlocked.Exchange(ref _video, 0);
         _ = SVBStopVideoCapture(Id);
         JoinReader();
         _ = SVBCloseCamera(Id);
@@ -366,7 +401,15 @@ internal sealed unsafe class SvbSession
 
     internal SVB_ERROR_CODE SetStart(int startX, int startY) => Apply(startX, startY, Width, Height, Bin, Format);
 
-    /// <summary>Stops the stream (the SDK refuses a window or a format while it runs), sets both, starts it again.</summary>
+    /// <summary>
+    /// Stops the stream (the SDK refuses a window or a format while it runs) and sets both. The next exposure starts the
+    /// stream again (<see cref="BeginExposure"/>), and a video starts its own.
+    /// </summary>
+    /// <remarks>
+    /// Restarting it here cost every pan of a video a soft trigger stream it never used: a stop, a start and the
+    /// <see cref="UnaskedFrameWaitMs"/> wait, about half a second each on the bench SV605CC (2026-10-21: a pan took
+    /// 2.1 s to its first frame).
+    /// </remarks>
     private SVB_ERROR_CODE Apply(int startX, int startY, int width, int height, int bin, SVB_IMG_TYPE format)
     {
         if (startX == StartX && startY == StartY && width == Width && height == Height && bin == Bin && format == Format)
@@ -379,12 +422,19 @@ internal sealed unsafe class SvbSession
             return SVB_ERROR_CODE.SVB_ERROR_EXPOSURE_IN_PROGRESS;
         }
 
+        // A stream's window is the one set when it starts (the DAL's contract): the caller stops it first.
+        if (IsStreamingVideo)
+        {
+            return SVB_ERROR_CODE.SVB_ERROR_VIDEO_MODE_ACTIVE;
+        }
+
         if (checked(width * height * BytesPerPixel(format)) > _frameCapacity)
         {
             return SVB_ERROR_CODE.SVB_ERROR_INVALID_SIZE;
         }
 
         _ = SVBStopVideoCapture(Id);
+        _triggerStreamRunning = false;
         JoinReader();
 
         var result = format == Format ? SVB_ERROR_CODE.SVB_SUCCESS : SVBSetOutputImageType(Id, format);
@@ -398,8 +448,7 @@ internal sealed unsafe class SvbSession
             }
         }
 
-        var restart = StartStream();
-        return result is SVB_ERROR_CODE.SVB_SUCCESS ? restart : result;
+        return result;
     }
 
     // ---- Exposure ---------------------------------------------------------------------------------------
@@ -424,7 +473,17 @@ internal sealed unsafe class SvbSession
             return SVB_ERROR_CODE.SVB_ERROR_EXPOSURE_IN_PROGRESS;
         }
 
+        if (IsStreamingVideo)
+        {
+            return SVB_ERROR_CODE.SVB_ERROR_VIDEO_MODE_ACTIVE;
+        }
+
         JoinReader();
+        if (!_triggerStreamRunning && StartStream() is not SVB_ERROR_CODE.SVB_SUCCESS and var started)
+        {
+            return started;
+        }
+
         var bytes = FrameBytes;
         for (var drained = 0; drained < 4 && SVBGetVideoData(Id, _frame, new CLong(bytes), 0) is SVB_ERROR_CODE.SVB_SUCCESS; drained++)
         {
@@ -515,6 +574,97 @@ internal sealed unsafe class SvbSession
             _ = reader.Join(ReaderWaitMs * 3);
         }
     }
+
+    // ---- Video ------------------------------------------------------------------------------------------
+
+    /// <summary>True between <see cref="StartVideo"/> and <see cref="StopVideo"/>.</summary>
+    internal bool IsStreamingVideo => Volatile.Read(ref _video) == 1;
+
+    /// <summary>
+    /// Turns the idle soft trigger stream into a free-running one: the stream stopped, the camera put in
+    /// <c>SVB_MODE_NORMAL</c>, the stream started again, with the window, format and controls set now.
+    /// </summary>
+    /// <remarks>
+    /// No frame is dropped here, unlike <see cref="StartStream"/>: in normal mode the first frame a started stream
+    /// sends is the first frame of the video, exposed with the settings it starts with, not an answer to a trigger
+    /// nobody sent.
+    /// </remarks>
+    internal SVB_ERROR_CODE StartVideo()
+    {
+        if (Volatile.Read(ref _state) is StateExposing)
+        {
+            return SVB_ERROR_CODE.SVB_ERROR_EXPOSURE_IN_PROGRESS;
+        }
+
+        if (Interlocked.CompareExchange(ref _video, 1, 0) != 0)
+        {
+            return SVB_ERROR_CODE.SVB_ERROR_VIDEO_MODE_ACTIVE;
+        }
+
+        // A frame a finished exposure left untaken goes with the stream it came from.
+        _ = Interlocked.Increment(ref _generation);
+        _ = SVBStopVideoCapture(Id);
+        _triggerStreamRunning = false;
+        JoinReader();
+        Volatile.Write(ref _state, StateIdle);
+
+        var result = SetMode(SVB_CAMERA_MODE.SVB_MODE_NORMAL);
+        if (result is SVB_ERROR_CODE.SVB_SUCCESS)
+        {
+            result = SVBStartVideoCapture(Id);
+        }
+
+        if (result is not SVB_ERROR_CODE.SVB_SUCCESS)
+        {
+            _ = StopVideo();
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Waits at most <paramref name="waitMs"/> for the stream's next frame, straight into the caller's buffer, on the
+    /// caller's thread.
+    /// </summary>
+    internal SVB_ERROR_CODE ReadVideoFrame(nint buffer, int bufferSize, int waitMs)
+    {
+        if (!IsStreamingVideo)
+        {
+            return SVB_ERROR_CODE.SVB_ERROR_INVALID_SEQUENCE;
+        }
+
+        var bytes = FrameBytes;
+        return bufferSize < bytes
+            ? SVB_ERROR_CODE.SVB_ERROR_BUFFER_TOO_SMALL
+            : SVBGetVideoData(Id, (byte*)buffer, new CLong(bytes), waitMs);
+    }
+
+    /// <summary>
+    /// Stops the free-running stream. The camera stays in normal mode until the next exposure puts it back in soft
+    /// trigger mode and starts its stream (<see cref="BeginExposure"/>), so a pan that starts the video again pays for
+    /// neither.
+    /// </summary>
+    internal SVB_ERROR_CODE StopVideo()
+        => Interlocked.Exchange(ref _video, 0) == 0 ? SVB_ERROR_CODE.SVB_SUCCESS : SVBStopVideoCapture(Id);
+
+    /// <summary>The frames the stream could not hand over since it started (<c>SVBGetDroppedFrames</c>).</summary>
+    internal bool TryGetDroppedFrames(out int dropped)
+    {
+        int count;
+        var ok = SVBGetDroppedFrames(Id, &count) is SVB_ERROR_CODE.SVB_SUCCESS;
+        dropped = ok ? count : 0;
+        return ok;
+    }
+
+    // ---- The cooler -------------------------------------------------------------------------------------
+
+    private readonly CoolerGovernor? _coolerGovernor;
+
+    /// <summary>How far, in tenths of a degree, the governor holds the camera's target above the one asked for.</summary>
+    internal int CoolerTargetRaisedDeci => _coolerGovernor?.RaisedDeci ?? 0;
+
+    /// <summary>Records a target temperature a caller set, in the SDK's tenths: the one the governor comes back down to.</summary>
+    internal void NoteAskedTarget(int targetDeci) => _coolerGovernor?.NoteAsked(targetDeci);
 
     // ---- Controls ---------------------------------------------------------------------------------------
 

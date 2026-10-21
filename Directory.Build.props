@@ -8,8 +8,8 @@
 
   <PropertyGroup>
     <!-- THE version for this repo, and the only place it is written. It TRACKS THE VENDOR SDK, as
-         PlayerOne.SDK does: 1.13 is SVBCameraSDK v1.13.4. -->
-    <VersionMajorMinor>1.13</VersionMajorMinor>
+         PlayerOne.SDK does: 1.13 is SVBCameraSDK v1.13.4, and 1.14 is the same vendor SDK with the binding streaming raw video and capping the cooler at 90 %. -->
+    <VersionMajorMinor>1.14</VersionMajorMinor>
     <VersionPrefix Condition="'$(VersionPrefix)' == ''">$(VersionMajorMinor).0</VersionPrefix>
   </PropertyGroup>
 
