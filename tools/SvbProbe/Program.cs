@@ -14,15 +14,21 @@ internal static unsafe class Program
     private static int Main(string[] args)
     {
         var arm = args.Length > 0 ? args[0].ToLowerInvariant() : "";
-        if (arm is not ("info" or "raw" or "dal" or "edge" or "cool" or "dark"))
+        if (arm is not ("info" or "raw" or "dal" or "edge" or "cool" or "dark" or "video"))
         {
-            Console.WriteLine("usage: SvbProbe info|raw|dal|edge|cool|dark [--exposure-ms N] [--gain N] [--offset N]");
+            Console.WriteLine("usage: SvbProbe info|raw|dal|edge|cool|dark|video [--exposure-ms N] [--gain N] [--offset N]");
             return 1;
         }
 
         if (arm is "cool")
         {
             return CoolArm.Run(args);
+        }
+
+        if (arm is "video")
+        {
+            Console.WriteLine($"SvbProbe video, {DateTime.Now:yyyy-MM-dd HH:mm}, SDK {SVBGetSDKVersion()}");
+            return VideoArm.Run(args);
         }
 
         if (arm is "dark")

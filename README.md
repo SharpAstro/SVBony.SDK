@@ -4,7 +4,8 @@ SVBONY cameras from .NET, implementing SharpAstro's `TianWen.DAL` device abstrac
 the same code that drives a ZWO, QHY, Player One or ToupTek one.
 
 Vendor SDK: **SVBCameraSDK v1.13.4** (2025-02-05), Windows x64 and Linux x64, arm64 and arm (`lib/SOURCE.txt` names
-each file and its sha256). The package's `MAJOR.MINOR` tracks it. The vendor drop has no macOS build. SVBONY's newer
+each file and its sha256). The package's `MAJOR.MINOR` started at it (1.13) and moves on with the binding: 1.14 is
+the same vendor SDK, streaming raw video and keeping the cooler below 90 %. The vendor drop has no macOS build. SVBONY's newer
 ToupTek-based line (`svbonycam`) is not this SDK: it is a ToupTek brand, through ToupTek.SDK.
 
 ## Verified on hardware
@@ -36,6 +37,21 @@ SVBONY's driver package 1.13.4, 2026-10-21, through `tools/SvbProbe`.
     is a stop and start (the aborted trigger's frame never arrives) and the reader waits in 250 ms steps;
   - a window, a bin or a format can be changed only with the stream stopped, and a gain written before the first
     window is set after an open is refused (`SVB_ERROR_GENERAL_ERROR`), so an open sets the window first.
+- **Video is the same stream FREE-RUNNING** (`SVB_MODE_NORMAL`; `CanVideoCapture`, `StartVideoCapture`,
+  `GetVideoData` on the caller's thread, `StopVideoCapture`, `TryGetDroppedFrames`). Measured at 2 ms, gain 120,
+  uncooled: 19.8 frames a second at full frame in RAW16 and RAW8 alike (the sensor's rate, not the link's), 116
+  through a 640 x 480 window, against 6.6 and 32 one soft-triggered exposure at a time; 0 to 3 frames dropped in 5 s.
+  - A camera MODE change costs about half a second each way, so a mode is written only when it changes, and the soft
+    trigger stream is started by the next exposure, never by a stop or a window change. A pan (stop, move, start) then
+    reaches its first frame in 8 ms; before, with soft trigger mode and its stream restored in between, it took 2.1 s.
+  - A window or a format, and a single exposure, are refused while a video runs (`VideoModeActive`): a pan is a stop and a
+    start (`CanPanRoiWhileStreaming` false). The first exposure after a video pays the mode change, its stream start
+    and the unasked frame's wait, about 1.2 s once.
+- **The cooler is kept below 90 %** (`CoolerGovernor`): the camera regulates its own cooler to its target and drives
+  it to 100 % for one out of reach, and the SDK has no power limit, so at 90 % or more the binding raises the target
+  a degree (at most every 30 s), and lowers it again toward the target asked for, a degree at most every 2 minutes,
+  once the power is down to 80 %. The raised target reads back as the camera's (`CoolerTargetRaised` says by how
+  much), and a target set through the binding is the new one to come back to. Not yet seen to act on hardware.
 - **Binning goes through `SVBSetROIFormatEx` in mode 0, which averages** (bin 1 median 1184, bin 2 mode 0 1332,
   mode 1 5333). The plain `SVBSetROIFormat` sums, which would put a binned frame on another ADU scale than the
   other vendors' bindings give.
@@ -54,6 +70,7 @@ SVBONY's driver package 1.13.4, 2026-10-21, through `tools/SvbProbe`.
 | `raw` | Which controls change a RAW16 frame, per photosite colour |
 | `edge` | Bin modes, and what an abort and a stream restart do |
 | `dal` | The DAL members only, as TianWen's driver calls them: controls, full frame, binned window, abort, a run, a second holder |
+| `video` | The stream through the DAL members: frame rate at full frame and 640 x 480 in RAW16 and RAW8 against single exposures, a pan, and an exposure straight after; cooler left off |
 | `cool` | The cooler under continuous exposures, the setpoint WALKED (1 C per 30 s) down to each `--targets` stage and back up before it is switched off; `--stop-file` ends it early and still walks back |
 
 ```
