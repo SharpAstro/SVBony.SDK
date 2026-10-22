@@ -354,9 +354,16 @@ internal sealed unsafe class SvbSession
         _ = Interlocked.Increment(ref _generation);
         _ = Interlocked.Exchange(ref _video, 0);
         _ = SVBStopVideoCapture(Id);
-        JoinReader();
+        var readerGone = JoinReader();
         _ = SVBCloseCamera(Id);
-        NativeMemory.Free(_frame);
+
+        // A reader still inside SVBGetVideoData past the join (a stream stalled behind a hub, TianWen #1749) may still write
+        // into the frame: freed under it, that write is a use-after-free, an access violation that ends the process
+        // (TianWen #1760). Kept instead: one frame's memory, leaked for the life of the process, is the cheaper failure.
+        if (readerGone)
+        {
+            NativeMemory.Free(_frame);
+        }
     }
 
     // ---- The window -----------------------------------------------------------------------------------
@@ -566,14 +573,14 @@ internal sealed unsafe class SvbSession
         return SVB_ERROR_CODE.SVB_SUCCESS;
     }
 
-    /// <summary>Waits for a reader that is ending (its generation has moved on, or the stream stopped).</summary>
-    private void JoinReader()
-    {
-        if (Interlocked.Exchange(ref _reader, null) is { } reader && reader != Thread.CurrentThread)
-        {
-            _ = reader.Join(ReaderWaitMs * 3);
-        }
-    }
+    /// <summary>
+    /// Waits for a reader that is ending (its generation has moved on, or the stream stopped); false when it was still
+    /// running when the wait ran out, so it may still write into the frame.
+    /// </summary>
+    private bool JoinReader()
+        => Interlocked.Exchange(ref _reader, null) is not { } reader
+            || reader == Thread.CurrentThread
+            || reader.Join(ReaderWaitMs * 3);
 
     // ---- Video ------------------------------------------------------------------------------------------
 
