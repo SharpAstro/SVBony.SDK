@@ -68,7 +68,7 @@ internal static class CoolArm
             Expect(camera.SetROIFormat(camera.MaxWidth, camera.MaxHeight, 1, PixelDataFormat.RAW16), "SetROIFormat");
             Expect(camera.SetStartPosition(0, 0), "SetStartPosition");
             Expect(camera.SetControlValue(CMOSControlType.Gain, gain), "gain");
-            Expect(camera.SetControlValue(CMOSControlType.Brightness, 20), "offset");
+            Expect(camera.SetControlValue(CMOSControlType.BlackLevel, 20), "offset");
             Expect(camera.SetControlValue(CMOSControlType.Exposure, (int)(exposureS * 1_000_000)), "exposure");
 
             // Start the walk where the sensor IS, so switching the cooler on asks for no difference at all.

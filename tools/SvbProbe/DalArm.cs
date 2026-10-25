@@ -48,7 +48,7 @@ internal static class DalArm
             }
 
             Expect(camera.SetControlValue(CMOSControlType.Gain, 120) is CMOSErrorCode.Success, "Gain 120");
-            Expect(camera.SetControlValue(CMOSControlType.Brightness, 20) is CMOSErrorCode.Success, "Offset 20");
+            Expect(camera.SetControlValue(CMOSControlType.BlackLevel, 20) is CMOSErrorCode.Success, "Offset 20");
 
             Expect(camera.SetROIFormat(camera.MaxWidth, camera.MaxHeight, 1, PixelDataFormat.RAW16) is CMOSErrorCode.Success, "full frame RAW16");
             Expect(camera.SetStartPosition(0, 0) is CMOSErrorCode.Success, "start 0, 0");

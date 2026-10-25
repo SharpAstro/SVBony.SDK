@@ -41,7 +41,7 @@ internal static class DarkArm
             Expect(camera.SetROIFormat(w, h, 1, PixelDataFormat.RAW16), "SetROIFormat");
             Expect(camera.SetStartPosition(0, 0), "SetStartPosition");
             Expect(camera.SetControlValue(CMOSControlType.Gain, gain), "gain");
-            Expect(camera.SetControlValue(CMOSControlType.Brightness, offset), "offset");
+            Expect(camera.SetControlValue(CMOSControlType.BlackLevel, offset), "offset");
             Expect(camera.SetControlValue(CMOSControlType.Exposure, (int)(exposureS * 1_000_000)), "exposure");
 
             var temperature = ReadTemperature();

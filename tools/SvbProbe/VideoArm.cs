@@ -30,7 +30,7 @@ internal static unsafe class VideoArm
         {
             Console.WriteLine($"{camera.Name}, {camera.MaxWidth} x {camera.MaxHeight}, {camera.PortType}, video {camera.CanVideoCapture}, pan while streaming {camera.CanPanRoiWhileStreaming}");
             Expect(camera.SetControlValue(CMOSControlType.Gain, 120) is CMOSErrorCode.Success, "Gain 120");
-            Expect(camera.SetControlValue(CMOSControlType.Brightness, 20) is CMOSErrorCode.Success, "Offset 20");
+            Expect(camera.SetControlValue(CMOSControlType.BlackLevel, 20) is CMOSErrorCode.Success, "Offset 20");
             Expect(camera.SetControlValue(CMOSControlType.Exposure, exposureUs) is CMOSErrorCode.Success, $"exposure {exposureUs} us");
             _ = camera.GetControlValue(CMOSControlType.HighSpeedMode, out var highSpeed, out _);
             Console.WriteLine($"exposure {exposureUs} us, gain 120, offset 20, high speed {highSpeed}, {seconds} s a stream");

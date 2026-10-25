@@ -30,7 +30,7 @@ internal static class SvbControls
             case CMOSControlType.WB_R: control = SVB_CONTROL_TYPE.SVB_WB_R; return true;
             case CMOSControlType.WB_G: control = SVB_CONTROL_TYPE.SVB_WB_G; return true;
             case CMOSControlType.WB_B: control = SVB_CONTROL_TYPE.SVB_WB_B; return true;
-            case CMOSControlType.Brightness: control = SVB_CONTROL_TYPE.SVB_BLACK_LEVEL; return true;
+            case CMOSControlType.BlackLevel: control = SVB_CONTROL_TYPE.SVB_BLACK_LEVEL; return true;
             case CMOSControlType.Flip: control = SVB_CONTROL_TYPE.SVB_FLIP; return true;
             case CMOSControlType.HighSpeedMode: control = SVB_CONTROL_TYPE.SVB_FRAME_SPEED_MODE; return true;
             case CMOSControlType.AutoMaxBrightness: control = SVB_CONTROL_TYPE.SVB_AUTO_TARGET_BRIGHTNESS; return true;
